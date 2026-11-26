@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-data
+  namespace: gitlab
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab
+  namespace: gitlab
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      containers:
+        - name: gitlab
+          image: gitlab/gitlab-ce:19.5.9-ce.0
+          env:
+            - name: GITLAB_OMNIBUS_CONFIG
+              value: |
+                external_url 'http://gitlab.gitlab.svc.cluster.local'
+                gitlab_rails['initial_root_password'] = 'IoT42-gitlab-root'
+                gitlab_rails['gitlab_shell_ssh_port'] = 22
+                puma['worker_processes'] = 2
+                sidekiq['max_concurrency'] = 5
+                prometheus_monitoring['enable'] = false
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "3Gi"
+          volumeMounts:
+            - name: data
+              mountPath: /etc/gitlab
+              subPath: config
+            - name: data
+              mountPath: /var/opt/gitlab
+              subPath: data
+            - name: data
+              mountPath: /var/log/gitlab
+              subPath: logs
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gitlab-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gitlab
+  namespace: gitlab
+spec:
+  type: NodePort
+  selector:
+    app: gitlab
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      nodePort: 30081
